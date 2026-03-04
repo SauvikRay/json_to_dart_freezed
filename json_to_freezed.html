@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JSON to Freezed + JsonSerializable</title>
+    <link rel="stylesheet" href="styles.css?v=20260303-10" />
+    <script src="script.js?v=20260303-10" defer></script>
+</head>
+<body>
+    <header class="top-bar">
+        <div class="brand">
+            <strong>JSON to Freezed + JsonSerializable</strong>
+            <span class="hint">Paste a JSON object and generate Dart models.</span>
+        </div>
+        <div class="controls">
+            <label class="hint" for="rootName">Root class</label>
+            <input id="rootName" value="ApiResponse" />
+            <label class="hint" for="fileName">File name</label>
+            <input id="fileName" value="api_response.dart" />
+            <button id="genBtn">Generate</button>
+            <button id="copyBtn">Copy Output</button>
+            <button id="sampleBtn">Load Sample</button>
+        </div>
+    </header>
+
+    <section class="options-strip">
+        <div class="options-title">Generator options</div>
+        <div class="options-grid">
+            <label class="switch-row" for="optNullSafety">
+                <span class="switch-control">
+                    <input id="optNullSafety" type="checkbox" checked />
+                    <span class="switch-slider"></span>
+                </span>
+                <span class="switch-label">Null Safety</span>
+            </label>
+            <label class="switch-row" for="optTypesOnly">
+                <span class="switch-control">
+                    <input id="optTypesOnly" type="checkbox" />
+                    <span class="switch-slider"></span>
+                </span>
+                <span class="switch-label">Types only</span>
+            </label>
+            <label class="switch-row" for="optClassCodec">
+                <span class="switch-control">
+                    <input id="optClassCodec" type="checkbox" />
+                    <span class="switch-slider"></span>
+                </span>
+                <span class="switch-label">Put encoder &amp; decoder in class</span>
+            </label>
+            <label class="switch-row" for="optRequired">
+                <span class="switch-control">
+                    <input id="optRequired" type="checkbox" />
+                    <span class="switch-slider"></span>
+                </span>
+                <span class="switch-label">Make all properties required</span>
+            </label>
+            <label class="switch-row" for="optFinal">
+                <span class="switch-control">
+                    <input id="optFinal" type="checkbox" checked />
+                    <span class="switch-slider"></span>
+                </span>
+                <span class="switch-label">Make all properties final</span>
+            </label>
+            <label class="switch-row" for="optCopyWith">
+                <span class="switch-control">
+                    <input id="optCopyWith" type="checkbox" checked />
+                    <span class="switch-slider"></span>
+                </span>
+                <span class="switch-label">Generate copyWith method</span>
+            </label>
+            <label class="switch-row" for="optOptional">
+                <span class="switch-control">
+                    <input id="optOptional" type="checkbox" />
+                    <span class="switch-slider"></span>
+                </span>
+                <span class="switch-label">Make all properties optional</span>
+            </label>
+        </div>
+    </section>
+
+    <main>
+        <section class="panel input-panel">
+            <div class="panel-title">JSON Input</div>
+            <div class="editor-shell">
+                <pre id="jsonInputHighlight" class="editor-highlight json-view" aria-hidden="true"></pre>
+                <textarea id="jsonInput" spellcheck="false" placeholder="" aria-label="Paste JSON here (root must be an object: { ... })"></textarea>
+            </div>
+        </section>
+        <section class="panel output-panel">
+            <div class="panel-title">Generated Dart</div>
+            <pre id="dartOutput" class="code-view dart-view output-area">// Generated Dart will appear here.</pre>
+        </section>
+    </main>
+
+    <div id="statusMsg" class="status"></div>
+</body>
+</html>
