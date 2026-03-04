@@ -35,6 +35,9 @@ const elements = {
     copyBtn: pickById("copyBtn"),
     sampleBtn: pickById("sampleBtn"),
     statusMsg: pickById("statusMsg"),
+    outputTitleText: pickById("outputTitleText"),
+    modeFreezedBtn: pickById("modeFreezedBtn"),
+    modeEntityBtn: pickById("modeEntityBtn"),
     optNullSafety: pickById("optNullSafety"),
     optTypesOnly: pickById("optTypesOnly"),
     optClassCodec: pickById("optClassCodec"),
@@ -45,7 +48,13 @@ const elements = {
 };
 
 let latestOutput = "";
+let latestOutputs = { freezed: "", entity: "" };
+let currentOutputMode = "freezed";
 let autoGenerateTimer = null;
+
+function getDefaultOutputPlaceholder(mode = currentOutputMode) {
+    return mode === "entity" ? "// Generated Entity class will appear here." : "// Generated Freezed class will appear here.";
+}
 
 function ensureDartOutput() {
     if (elements.dartOutput) return elements.dartOutput;
@@ -82,6 +91,29 @@ function setStatus(message, type) {
     if (!elements.statusMsg) return;
     elements.statusMsg.textContent = message;
     elements.statusMsg.className = `status ${type || "info"}`;
+}
+
+function setOutputMode(mode, shouldRegenerate = true) {
+    currentOutputMode = mode === "entity" ? "entity" : "freezed";
+
+    if (elements.modeFreezedBtn) {
+        elements.modeFreezedBtn.classList.toggle("active", currentOutputMode === "freezed");
+    }
+    if (elements.modeEntityBtn) {
+        elements.modeEntityBtn.classList.toggle("active", currentOutputMode === "entity");
+    }
+    if (elements.outputTitleText) {
+        elements.outputTitleText.textContent =
+            currentOutputMode === "entity" ? "Generated Dart (Entity)" : "Generated Dart (Freezed)";
+    }
+
+    if (shouldRegenerate && elements.jsonInput && elements.jsonInput.value.trim()) {
+        generate();
+        return;
+    }
+
+    latestOutput = latestOutputs[currentOutputMode] || "";
+    renderDartOutput(latestOutput);
 }
 
 function escapeHtml(text) {
@@ -241,8 +273,7 @@ function getClassAnnotation(config) {
     return "@unfreezed";
 }
 
-function buildGenerator(rootName, fileName, jsonObj, options) {
-    const config = { ...DEFAULT_OPTIONS, ...options };
+function buildClassModelMap(rootName, jsonObj) {
     const classes = new Map();
     const signatureToName = new Map();
     const usedNames = new Set([rootName]);
@@ -295,6 +326,12 @@ function buildGenerator(rootName, fileName, jsonObj, options) {
     }
 
     const classOrder = [...classes.keys()].filter((name) => name !== rootName).sort().concat([rootName]);
+    return { classes, classOrder, signatureToName };
+}
+
+function buildGenerator(rootName, fileName, jsonObj, options) {
+    const config = { ...DEFAULT_OPTIONS, ...options };
+    const { classes, classOrder, signatureToName } = buildClassModelMap(rootName, jsonObj);
 
     function generateClass(name, obj) {
         const lines = [];
@@ -390,6 +427,187 @@ function buildGenerator(rootName, fileName, jsonObj, options) {
     return `${header}${body}\n`;
 }
 
+function buildEntityGenerator(rootName, fileName, jsonObj, options) {
+    const config = { ...DEFAULT_OPTIONS, ...options };
+    const { classes, classOrder, signatureToName } = buildClassModelMap(rootName, jsonObj);
+
+    function resolveType(value) {
+        const typeInfo = inferType(value, {
+            classNameForObject: (childObj) => {
+                const signature = stableStringify(Object.keys(childObj).sort());
+                return signatureToName.get(signature) || "Model";
+            },
+            registerClass: () => {}
+        });
+
+        let dartType = typeInfo.type;
+        let isNullable = typeInfo.nullable || value === null;
+
+        if (!config.nullSafety || config.makeAllPropertiesRequired) {
+            dartType = removeNullability(dartType);
+            isNullable = false;
+        } else if (config.makeAllPropertiesOptional) {
+            dartType = appendNullableIfNeeded(dartType);
+            isNullable = true;
+        } else {
+            if (isNullable) dartType = appendNullableIfNeeded(dartType);
+            else dartType = removeNullability(dartType);
+        }
+
+        return { dartType, isNullable };
+    }
+
+    function jsonValueExpression(jsonKey, member, value) {
+        const typeInfo = inferType(value, {
+            classNameForObject: (childObj) => {
+                const signature = stableStringify(Object.keys(childObj).sort());
+                return signatureToName.get(signature) || "Model";
+            },
+            registerClass: () => {}
+        });
+        const accessor = `json['${jsonKey}']`;
+        const isNullableType = /\?$/.test(member.dartType);
+
+        if (typeInfo.jsonKind === "object") {
+            if (config.nullSafety && isNullableType) {
+                return `${accessor} == null ? null : ${removeNullability(typeInfo.type)}.fromJson(${accessor} as Map<String, dynamic>)`;
+            }
+            return `${removeNullability(typeInfo.type)}.fromJson(${accessor} as Map<String, dynamic>)`;
+        }
+
+        if (typeInfo.jsonKind === "list") {
+            const match = /^List<(.+)>$/.exec(typeInfo.type);
+            const elementTypeRaw = match ? match[1] : "dynamic";
+            const elementType = removeNullability(elementTypeRaw);
+
+            if (/^[A-Z]/.test(elementType)) {
+                if (config.nullSafety && isNullableType) {
+                    return `${accessor} == null ? null : (${accessor} as List).map((e) => e == null ? null : ${elementType}.fromJson(e as Map<String, dynamic>)).toList()`;
+                }
+                if (config.nullSafety) {
+                    return `(${accessor} as List).map((e) => ${elementType}.fromJson(e as Map<String, dynamic>)).toList()`;
+                }
+                return `(${accessor} as List).map((e) => ${elementType}.fromJson(e as Map<String, dynamic>)).toList()`;
+            }
+
+            if (config.nullSafety && isNullableType) {
+                return `${accessor} == null ? null : List<${elementTypeRaw}>.from(${accessor} as List)`;
+            }
+            if (config.nullSafety) {
+                return `List<${removeNullability(elementTypeRaw)}>.from(${accessor} as List)`;
+            }
+            return `List<${elementType}>.from(${accessor} as List)`;
+        }
+
+        if (typeInfo.type === "double") {
+            if (config.nullSafety && isNullableType) return `${accessor} == null ? null : (${accessor} as num).toDouble()`;
+            return `(${accessor} as num).toDouble()`;
+        }
+        if (typeInfo.type === "int") {
+            if (config.nullSafety && isNullableType) return `${accessor} == null ? null : (${accessor} as num).toInt()`;
+            return `(${accessor} as num).toInt()`;
+        }
+
+        return `${accessor} as ${member.dartType}`;
+    }
+
+    function toJsonValueExpression(member) {
+        const fieldName = member.fieldName;
+        const value = member.value;
+        const isNullableType = /\?$/.test(member.dartType);
+        const typeInfo = inferType(value, {
+            classNameForObject: (childObj) => {
+                const signature = stableStringify(Object.keys(childObj).sort());
+                return signatureToName.get(signature) || "Model";
+            },
+            registerClass: () => {}
+        });
+
+        if (typeInfo.jsonKind === "object") {
+            if (isNullableType) return `${fieldName}?.toJson()`;
+            return `${fieldName}.toJson()`;
+        }
+        if (typeInfo.jsonKind === "list") {
+            const match = /^List<(.+)>$/.exec(typeInfo.type);
+            const elementTypeRaw = match ? match[1] : "dynamic";
+            const elementType = removeNullability(elementTypeRaw);
+            if (/^[A-Z]/.test(elementType)) {
+                if (isNullableType) {
+                    if (config.nullSafety) return `${fieldName}?.map((e) => e?.toJson()).toList()`;
+                    return `${fieldName}?.map((e) => e.toJson()).toList()`;
+                }
+                if (config.nullSafety) return `${fieldName}.map((e) => e?.toJson()).toList()`;
+                return `${fieldName}.map((e) => e.toJson()).toList()`;
+            }
+        }
+        return fieldName;
+    }
+
+    function generateEntityClass(name, obj) {
+        const lines = [];
+        const members = Object.entries(obj).map(([jsonKey, value]) => {
+            const fieldName = sanitizeFieldName(jsonKey);
+            const { dartType, isNullable } = resolveType(value);
+            const shouldRequire =
+                config.nullSafety && (config.makeAllPropertiesRequired || (!config.makeAllPropertiesOptional && !isNullable));
+            return { jsonKey, fieldName, dartType, shouldRequire, value };
+        });
+
+        lines.push(`class ${name} {`);
+        for (const member of members) {
+            const finalKeyword = config.makeAllPropertiesFinal ? "final " : "";
+            lines.push(`  ${finalKeyword}${member.dartType} ${member.fieldName};`);
+        }
+        lines.push("");
+        lines.push(`  ${name}({`);
+        for (const member of members) {
+            const requiredKeyword = member.shouldRequire ? "required " : "";
+            lines.push(`    ${requiredKeyword}this.${member.fieldName},`);
+        }
+        lines.push("  });");
+        lines.push("");
+        lines.push(`  factory ${name}.fromJson(Map<String, dynamic> json) {`);
+        lines.push(`    return ${name}(`);
+        for (const member of members) {
+            const expr = jsonValueExpression(member.jsonKey, member, member.value);
+            lines.push(`      ${member.fieldName}: ${expr},`);
+        }
+        lines.push("    );");
+        lines.push("  }");
+        lines.push("");
+        lines.push("  Map<String, dynamic> toJson() {");
+        lines.push("    return {");
+        for (const member of members) {
+            const expr = toJsonValueExpression(member);
+            lines.push(`      '${member.jsonKey}': ${expr},`);
+        }
+        lines.push("    };");
+        lines.push("  }");
+
+        if (config.generateCopyWithMethod) {
+            lines.push("");
+            lines.push(`  ${name} copyWith({`);
+            for (const member of members) {
+                lines.push(`    ${appendNullableIfNeeded(removeNullability(member.dartType))} ${member.fieldName},`);
+            }
+            lines.push("  }) {");
+            lines.push(`    return ${name}(`);
+            for (const member of members) {
+                lines.push(`      ${member.fieldName}: ${member.fieldName} ?? this.${member.fieldName},`);
+            }
+            lines.push("    );");
+            lines.push("  }");
+        }
+
+        lines.push("}");
+        return lines.join("\n");
+    }
+
+    const header = ["// GENERATED (by json_to_freezed.html)", `// File: ${fileName}`, ""].join("\n");
+    const body = classOrder.map((name) => generateEntityClass(name, classes.get(name))).join("\n\n");
+    return `${header}${body}\n`;
+}
+
 function applyHighlightRules(source, rules) {
     let text = source;
     const placeholders = [];
@@ -469,7 +687,7 @@ function renderJsonInputHighlight(rawValue) {
 }
 
 function renderDartOutput(text) {
-    const source = text.trim() ? text : "// Generated Dart will appear here.";
+    const source = text.trim() ? text : getDefaultOutputPlaceholder();
     const highlighted = highlightDart(source.endsWith("\n") ? source : `${source}\n`);
     const output = ensureDartOutput();
     if (!output) {
@@ -491,6 +709,7 @@ function generate() {
     try {
         if (!elements.jsonInput || !elements.rootName || !elements.fileName) {
             latestOutput = "Generation error:\nRequired UI elements are missing.";
+            latestOutputs = { freezed: latestOutput, entity: latestOutput };
             renderDartOutput(latestOutput);
             setStatus("Generation failed. Missing UI elements.", "error");
             return;
@@ -504,8 +723,9 @@ function generate() {
         renderJsonInputHighlight(inputRaw);
 
         if (!inputTrimmed) {
+            latestOutputs = { freezed: "", entity: "" };
             latestOutput = "";
-            renderDartOutput("");
+            renderDartOutput(latestOutput);
             setStatus("Paste JSON first.", "info");
             return;
         }
@@ -515,6 +735,7 @@ function generate() {
             parsed = JSON.parse(inputRaw);
         } catch (error) {
             latestOutput = `Invalid JSON:\n${error.message}`;
+            latestOutputs = { freezed: latestOutput, entity: latestOutput };
             renderDartOutput(latestOutput);
             setStatus("Invalid JSON. Fix the input and generate again.", "error");
             return;
@@ -524,6 +745,7 @@ function generate() {
             latestOutput =
                 "Please paste a JSON object at the root (for example: { ... }). " +
                 "If your root is a list, wrap it like {\"items\": [...]}";
+            latestOutputs = { freezed: latestOutput, entity: latestOutput };
             renderDartOutput(latestOutput);
             setStatus("Root must be a JSON object.", "error");
             return;
@@ -533,11 +755,19 @@ function generate() {
         const fileName = fileNameRaw.endsWith(".dart") ? fileNameRaw : `${fileNameRaw}.dart`;
         const options = readGeneratorOptions();
 
-        latestOutput = buildGenerator(rootName, fileName, parsed, options);
+        latestOutputs = {
+            freezed: buildGenerator(rootName, fileName, parsed, options),
+            entity: buildEntityGenerator(rootName, fileName, parsed, options)
+        };
+        latestOutput = latestOutputs[currentOutputMode] || "";
         renderDartOutput(latestOutput);
-        setStatus("Dart code generated.", "success");
+        setStatus(
+            currentOutputMode === "entity" ? "Entity class code generated." : "Freezed class code generated.",
+            "success"
+        );
     } catch (error) {
         latestOutput = `Generation error:\n${error && error.message ? error.message : String(error)}`;
+        latestOutputs = { freezed: latestOutput, entity: latestOutput };
         renderDartOutput(latestOutput);
         setStatus("Generation failed. See output panel for details.", "error");
     }
@@ -545,6 +775,14 @@ function generate() {
 
 if (elements.genBtn) {
     elements.genBtn.addEventListener("click", generate);
+}
+
+if (elements.modeFreezedBtn) {
+    elements.modeFreezedBtn.addEventListener("click", () => setOutputMode("freezed"));
+}
+
+if (elements.modeEntityBtn) {
+    elements.modeEntityBtn.addEventListener("click", () => setOutputMode("entity"));
 }
 
 if (elements.jsonInput) {
@@ -555,6 +793,7 @@ if (elements.jsonInput) {
             autoGenerateTimer = null;
             const raw = elements.jsonInput.value.trim();
             if (!raw) {
+                latestOutputs = { freezed: "", entity: "" };
                 latestOutput = "";
                 renderDartOutput("");
                 setStatus("Paste JSON first.", "info");
@@ -565,6 +804,7 @@ if (elements.jsonInput) {
                 const parsed = JSON.parse(raw);
                 if (parsed !== null && !Array.isArray(parsed) && typeof parsed === "object") generate();
                 else {
+                    latestOutputs = { freezed: "", entity: "" };
                     latestOutput = "";
                     renderDartOutput("");
                     setStatus("Root must be a JSON object.", "error");
@@ -632,6 +872,7 @@ for (const optionEl of optionElements) {
 }
 
 applyOptionDependencies("");
+setOutputMode(currentOutputMode, false);
 renderJsonInputHighlight(elements.jsonInput ? elements.jsonInput.value : "");
 renderDartOutput("");
 setStatus("Ready.", "info");

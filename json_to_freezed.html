@@ -88,7 +88,13 @@
             </div>
         </section>
         <section class="panel output-panel">
-            <div class="panel-title">Generated Dart</div>
+            <div class="panel-title output-title-row">
+                <span id="outputTitleText">Generated Dart (Freezed)</span>
+                <div class="output-mode-toggle" role="group" aria-label="Output type">
+                    <button id="modeFreezedBtn" class="mode-btn active" type="button">Freezed Class</button>
+                    <button id="modeEntityBtn" class="mode-btn" type="button">Entity Class</button>
+                </div>
+            </div>
             <pre id="dartOutput" class="code-view dart-view output-area">// Generated Dart will appear here.</pre>
         </section>
     </main>

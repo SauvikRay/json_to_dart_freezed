@@ -234,6 +234,45 @@ main {
     color: #1f3b5f;
 }
 
+.output-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.output-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mode-btn {
+    border: 1px solid #cfd8e5;
+    background: #f2f6fb;
+    color: #284261;
+    border-radius: 999px;
+    padding: 5px 11px;
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 600;
+}
+
+.mode-btn:hover {
+    background: #e8eff8;
+}
+
+.mode-btn.active {
+    border-color: #0d9388;
+    background: #10aa9d;
+    color: #ffffff;
+}
+
+.mode-btn:focus-visible {
+    outline: 2px solid #6ba8ff;
+    outline-offset: 2px;
+}
+
 .editor-shell {
     position: relative;
     flex: 1;
@@ -515,6 +554,11 @@ main {
 
     .options-grid {
         gap: 10px 14px;
+    }
+
+    .output-title-row {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     main {
